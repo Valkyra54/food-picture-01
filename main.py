@@ -1,50 +1,66 @@
-"""food-picture-01 v2: deliver the finished ramen photograph to the output folder.
+"""Food-picture-01 v3: copy the bundled ramen photograph to the output folder.
 
-The shipped file is a 1024x1024 photorealistic tonkotsu ramen image stored as
-JPEG bytes under the name entry.png -- tall glossy noodle pull, a prominent
-upright sheet of nori, curling steam, a deep-orange molten jammy yolk, a
-charred chashu fan and bold chili-oil swirls over creamy broth. The program
-does nothing but place an exact copy of that file in the output directory,
-so repeated runs always yield identical bytes. It uses only the standard
-library and makes no network calls.
+The bundled asset is a 1024x1024 JPEG stored next to this script as entry.png.
+The program copies it byte-for-byte into the output directory and then checks
+that the copy is identical, so the graded artifact is exactly the image we
+reviewed in the lab.
+
+The digest comparison is the copy guard: it catches a truncated or corrupted
+write before the run can report success, instead of silently shipping a
+damaged image.
 """
 
 import hashlib
 import os
-import shutil
 import sys
 from pathlib import Path
 
+ASSET_NAME = "entry.png"
 
-def resolve_output_dir() -> Path:
-    """Return the directory the copy goes to.
 
-    The sandbox default is the absolute path /output. MAKEFUN_OUTPUT_DIR
-    may point somewhere else when the program is run in a scratch folder.
+def resolve_target_dir() -> Path:
+    """Where the graded entry.png must land.
+
+    Defaults to the absolute /output directory; MAKEFUN_OUTPUT_DIR overrides
+    it when set (and non-empty).
     """
-    override = os.environ.get("MAKEFUN_OUTPUT_DIR")
-    target = Path(override) if override else Path("/output")
-    target.mkdir(parents=True, exist_ok=True)
+    override = os.environ.get("MAKEFUN_OUTPUT_DIR", "").strip()
+    if override:
+        return Path(override)
+    return Path("/output")
+
+
+def expected_digest(asset: Path) -> str:
+    """SHA-256 of the bundled image, computed from the asset itself."""
+    return hashlib.sha256(asset.read_bytes()).hexdigest()
+
+
+def publish_image(asset: Path, target_dir: Path) -> Path:
+    """Write the asset's exact bytes to target_dir/entry.png and verify."""
+    target_dir.mkdir(parents=True, exist_ok=True)
+    blob = asset.read_bytes()
+    target = target_dir / ASSET_NAME
+    target.write_bytes(blob)
+    written = hashlib.sha256(target.read_bytes()).hexdigest()
+    if written != hashlib.sha256(blob).hexdigest():
+        raise SystemExit(
+            f"copy check failed: {target} digest {written} "
+            "does not match the bundled image"
+        )
     return target
 
 
-def verify_copy(source: Path, target: Path) -> None:
-    """Raise unless the copied file is a byte-for-byte match of the source."""
-    source_hash = hashlib.sha256(source.read_bytes()).hexdigest()
-    target_hash = hashlib.sha256(target.read_bytes()).hexdigest()
-    if source_hash != target_hash:
-        raise RuntimeError("copied entry.png differs from the source file")
-
-
-def main() -> int:
+def run() -> int:
     script_dir = Path(__file__).resolve().parent
-    picture = script_dir / "entry.png"
-    destination = resolve_output_dir() / "entry.png"
-    # Copy first, then hash both files: the guard only passes on an exact copy.
-    shutil.copyfile(picture, destination)
-    verify_copy(picture, destination)
+    asset = script_dir / ASSET_NAME
+    if not asset.is_file():
+        print(f"bundled image missing: {asset}", file=sys.stderr)
+        return 1
+    digest = expected_digest(asset)
+    target = publish_image(asset, resolve_target_dir())
+    print(f"wrote {target} ({target.stat().st_size} bytes, sha256 {digest})")
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(run())
